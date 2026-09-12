@@ -259,12 +259,14 @@ def load_sheet(path, sheet=None):
 GRP_KEYS = ["کد راهکاران", "نام محصول", "خانواده محصول",
             "نام محصول ترکیبی", "گروه محصول نهایی", "برنچ"]
 GRP_CODE_COL = "کد راهکاران"
+GRP_CODE_COL_ALT = "کد گروه محصول"   # در نسخهٔ جدیدتر جدول، نام ستون کد این است
 
 
 def load_grouping(path):
     """خواندن جدول گروه‌بندی:
-      ردیف هدر از بین ۱۵ ردیف اول هر شیت به کمک عنوان «کد راهکاران» پیدا می‌شود
-      (پس ردیف عنوان/خالی بالای جدول و جابه‌جایی جدول بین شیت‌ها خرابی نمی‌سازد).
+      ردیف هدر از بین ۱۵ ردیف اول هر شیت پیدا می‌شود (پس ردیف عنوان/خالی
+      بالای جدول و جابه‌جایی جدول بین شیت‌ها خرابی نمی‌سازد).
+      ستون کد: «کد راهکاران» یا «کد گروه محصول».
       برگشت: (ردیف‌ها, هدرها, توضیح)
     """
     wb = openpyxl.load_workbook(path, data_only=True)
@@ -272,19 +274,24 @@ def load_grouping(path):
         allr = list(ws.iter_rows(values_only=True))
         for hi, row in enumerate(allr[:15]):
             hdr = [str(h).strip() if h is not None else "" for h in row]
-            if GRP_CODE_COL in hdr:
+            code_col = next((c for c in (GRP_CODE_COL, GRP_CODE_COL_ALT)
+                             if c in hdr), None)
+            if code_col:
                 out = []
                 for r in allr[hi + 1:]:
                     if not any(v is not None for v in r):
                         continue
-                    out.append(dict(zip(hdr, r)))
+                    d = dict(zip(hdr, r))
+                    if code_col != GRP_CODE_COL:
+                        d.setdefault(GRP_CODE_COL, d.get(code_col))
+                    out.append(d)
                 return out, hdr, f"شیت «{ws.title}»، ردیف {hi + 1}"
     # ستون پیدا نشد — هدر شیت اول را برگردان تا بتواند تشخيص داده شود
     first = wb.worksheets[0]
     row1 = next(first.iter_rows(min_row=1, max_row=1, values_only=True), None) or ()
     hdr = [str(h).strip() if h is not None else "" for h in row1]
     found = ", ".join(h for h in hdr if h)[:180]
-    return [], hdr, (f"ستون «{GRP_CODE_COL}» پیدا نشد "
+    return [], hdr, (f"ستون «{GRP_CODE_COL}» یا «{GRP_CODE_COL_ALT}» پیدا نشد "
                      f"(هدرهای شیت اول: {found or '—'})")
 
 
@@ -836,8 +843,9 @@ def run_build(quality, defect, prod, grouping, history=None, month=None,
         log(f"  ⚠ ستون‌های موجود نبود در جدول گروه‌بندی: {', '.join(missing_cols)}")
     if not grp:
         log("  ⚠ هشدار: هیچ کدی از جدول گروه‌بندی خوانده نشد؛ همه ردیف‌های رپورت "
-            "#N/A می‌شوند. مطمئن شوید ستونی با هدر «کد راهکاران» در جدول هست و "
-            "کدهای آن با «کد کالا» فایل‌های سایت یکی‌اند (مثل 3206133).")
+            "#N/A می‌شوند. مطمئن شوید ستونی با هدر «کد راهکاران» یا "
+            "«کد گروه محصول» در جدول هست و کدهای آن با «کد کالا» "
+            "فایل‌های سایت یکی‌اند (مثل 3206133).")
 
     out_wb = openpyxl.Workbook()
     out_wb.remove(out_wb.active)
