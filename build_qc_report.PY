@@ -75,12 +75,20 @@
 """
 
 import argparse
+import os
 import re
 import sys
 from collections import Counter, defaultdict
 
 import openpyxl
 from openpyxl.styles import Font
+
+# ---------------------------------------------------------------------------
+# اطلاعات نسخهٔ اختصاصی — در پنجرهٔ برنامه نمایش داده می‌شوند
+# ---------------------------------------------------------------------------
+APP_TITLE = "سازندهٔ رپورت QC راهکاران"
+APP_OWNER = "سعید کاظمی‌پور"
+APP_PHONE = "09216895359"
 
 # ---------------------------------------------------------------------------
 # پیکربندی
@@ -259,12 +267,14 @@ def load_sheet(path, sheet=None):
 GRP_KEYS = ["کد راهکاران", "نام محصول", "خانواده محصول",
             "نام محصول ترکیبی", "گروه محصول نهایی", "برنچ"]
 GRP_CODE_COL = "کد راهکاران"
+GRP_CODE_COL_ALT = "کد گروه محصول"   # در نسخهٔ جدیدتر جدول، نام ستون کد این است
 
 
 def load_grouping(path):
     """خواندن جدول گروه‌بندی:
-      ردیف هدر از بین ۱۵ ردیف اول هر شیت به کمک عنوان «کد راهکاران» پیدا می‌شود
-      (پس ردیف عنوان/خالی بالای جدول و جابه‌جایی جدول بین شیت‌ها خرابی نمی‌سازد).
+      ردیف هدر از بین ۱۵ ردیف اول هر شیت پیدا می‌شود (پس ردیف عنوان/خالی
+      بالای جدول و جابه‌جایی جدول بین شیت‌ها خرابی نمی‌سازد).
+      ستون کد: «کد راهکاران» یا «کد گروه محصول».
       برگشت: (ردیف‌ها, هدرها, توضیح)
     """
     wb = openpyxl.load_workbook(path, data_only=True)
@@ -272,19 +282,24 @@ def load_grouping(path):
         allr = list(ws.iter_rows(values_only=True))
         for hi, row in enumerate(allr[:15]):
             hdr = [str(h).strip() if h is not None else "" for h in row]
-            if GRP_CODE_COL in hdr:
+            code_col = next((c for c in (GRP_CODE_COL, GRP_CODE_COL_ALT)
+                             if c in hdr), None)
+            if code_col:
                 out = []
                 for r in allr[hi + 1:]:
                     if not any(v is not None for v in r):
                         continue
-                    out.append(dict(zip(hdr, r)))
+                    d = dict(zip(hdr, r))
+                    if code_col != GRP_CODE_COL:
+                        d.setdefault(GRP_CODE_COL, d.get(code_col))
+                    out.append(d)
                 return out, hdr, f"شیت «{ws.title}»، ردیف {hi + 1}"
     # ستون پیدا نشد — هدر شیت اول را برگردان تا بتواند تشخيص داده شود
     first = wb.worksheets[0]
     row1 = next(first.iter_rows(min_row=1, max_row=1, values_only=True), None) or ()
     hdr = [str(h).strip() if h is not None else "" for h in row1]
     found = ", ".join(h for h in hdr if h)[:180]
-    return [], hdr, (f"ستون «{GRP_CODE_COL}» پیدا نشد "
+    return [], hdr, (f"ستون «{GRP_CODE_COL}» یا «{GRP_CODE_COL_ALT}» پیدا نشد "
                      f"(هدرهای شیت اول: {found or '—'})")
 
 
@@ -836,8 +851,9 @@ def run_build(quality, defect, prod, grouping, history=None, month=None,
         log(f"  ⚠ ستون‌های موجود نبود در جدول گروه‌بندی: {', '.join(missing_cols)}")
     if not grp:
         log("  ⚠ هشدار: هیچ کدی از جدول گروه‌بندی خوانده نشد؛ همه ردیف‌های رپورت "
-            "#N/A می‌شوند. مطمئن شوید ستونی با هدر «کد راهکاران» در جدول هست و "
-            "کدهای آن با «کد کالا» فایل‌های سایت یکی‌اند (مثل 3206133).")
+            "#N/A می‌شوند. مطمئن شوید ستونی با هدر «کد راهکاران» یا "
+            "«کد گروه محصول» در جدول هست و کدهای آن با «کد کالا» "
+            "فایل‌های سایت یکی‌اند (مثل 3206133).")
 
     out_wb = openpyxl.Workbook()
     out_wb.remove(out_wb.active)
@@ -885,6 +901,34 @@ def run_build(quality, defect, prod, grouping, history=None, month=None,
         validate(out, validate_path, log=log)
 
 
+def _find_logo():
+    """لوگو: فایل logo.png/gif/jpg کنار اسکریپت (یا در پوشهٔ اجرا)"""
+    here = os.path.dirname(os.path.abspath(__file__))
+    for d in (here, os.getcwd()):
+        for name in ("logo.png", "logo.gif", "logo.jpg", "logo.jpeg"):
+            p = os.path.join(d, name)
+            if os.path.isfile(p):
+                return p
+    return None
+
+
+def _load_logo(tk, path, max_h=56):
+    """بارگذاری لوگو و کوچک‌کردن آن؛ اگر نشد None"""
+    try:
+        if path.lower().endswith((".png", ".gif")):
+            img = tk.PhotoImage(file=path)
+            f = max(1, img.height() // max_h)
+            if f > 1:
+                img = img.subsample(f, f)
+            return img
+        from PIL import Image, ImageTk
+        im = Image.open(path)
+        im.thumbnail((max_h * 4, max_h))
+        return ImageTk.PhotoImage(im)
+    except Exception:
+        return None
+
+
 def run_gui():
     """حالت گرافیکی: بارگذاری فایل‌ها و انتخاب مسیر خروجی"""
     import queue
@@ -893,11 +937,25 @@ def run_gui():
     from tkinter import filedialog, messagebox
 
     app = tk.Tk()
-    app.title("سازندهٔ رپورت QC راهکاران")
-    app.geometry("720x680")
+    app.title(APP_TITLE)
+    app.geometry("780x800")
 
+    # سربرگ: لوگو بزرگ + عنوان + نام و تلفن (ثابت و غیرقابل تغییر از داخل برنامه)
+    header = tk.Frame(app)
+    header.pack(fill="x", padx=12, pady=(8, 2))
+    logo_path = _find_logo()
+    logo_img = _load_logo(tk, logo_path, max_h=150) if logo_path else None
+    if logo_img is not None:
+        logo_lbl = tk.Label(header, image=logo_img)
+        logo_lbl.image = logo_img      # نگه‌داشتن مرجع تا تصویر جمع‌آوری نشود
+        logo_lbl.pack(side="left", padx=(0, 12), pady=4)
+    title_box = tk.Frame(header)
+    title_box.pack(side="right", anchor="n", fill="x", expand=True)
+    tk.Label(title_box, text=APP_TITLE, font=("", 14, "bold")).pack(anchor="e", pady=(4, 2))
+    tk.Label(title_box, text=f"نام: {APP_OWNER}    |    تلفن: {APP_PHONE}",
+             fg="#444").pack(anchor="e", pady=(0, 4))
     tk.Label(app, text="فایل‌ها را انتخاب کنید و روی «تولید رپورت» بزنید",
-             font=("", 11, "bold")).pack(pady=(10, 2))
+             font=("", 11, "bold")).pack(pady=(0, 2))
     tk.Label(app, text="رپورت ماه قبل و ماه، اختیاری‌اند", fg="#555").pack(pady=(0, 6))
 
     fields = {}
