@@ -67,6 +67,9 @@
 
     --month 1405/06        (اختیاری) فقط ردیف‌های یک ماه خاص
     --validate فایل.xlsx   (اختیاری) مقایسه خروجی با یک رپورت موجود
+    --dedup                (اختیاری) رکوردهای کاملاً تکراری (همهٔ ستون‌ها
+                           یکسان) را جدا می‌کند: یکی نگه داشته می‌شود و
+                           بقیه به‌عنوان تکراری در لاگ فهرست می‌شوند
     --gui                  حالت گرافیکی: فایل‌ها و مسیر خروجی از روی
                            پنجره انتخاب می‌شوند (بدون بقیهٔ پارامترها)
 """
@@ -642,7 +645,7 @@ def station_for(cfg, source_row, from_quality):
 # ---------------------------------------------------------------------------
 
 
-def build_sheet(cfg, quality, defect, prod, grp, history, month):
+def build_sheet(cfg, quality, defect, prod, grp, history, month, dedup=False):
     rows = []
     seq = 0
     hist_defect, hist_prod = (history.get(cfg["name"]) or (Counter(), Counter()))
@@ -743,7 +746,23 @@ def build_sheet(cfg, quality, defect, prod, grp, history, month):
     for i, (code, dk, seq_i, row) in enumerate(rows):
         order.setdefault(code, len(order))
     rows.sort(key=lambda t: (order[t[0]], t[1], t[2]))
-    return [t[3] for t in rows], skipped, dropped_nogroup
+    data = [t[3] for t in rows]
+
+    # گزینهٔ حذف تکراری کامل: رکوردی که همهٔ ستون‌هایش با رکورد(های)
+    # دیگر یکسان است → یکی نگه داشته می‌شود و بقیه جدا می‌شوند
+    dupes = []
+    if dedup:
+        seen = set()
+        kept = []
+        for row in data:
+            key = tuple(row)
+            if key in seen:
+                dupes.append(row)
+                continue
+            seen.add(key)
+            kept.append(row)
+        data = kept
+    return data, skipped, dropped_nogroup, dupes
 
 
 def style_sheet(ws, ncols):
@@ -792,7 +811,7 @@ def validate(gen_path, ref_path, log=print):
 
 
 def run_build(quality, defect, prod, grouping, history=None, month=None,
-              out=None, validate_path=None, log=print):
+              out=None, validate_path=None, dedup=False, log=print):
     """اجرای ساخت رپورت؛ log تابع خروجی‌دهنده (در حالت گرافیکی به لاگ فرستاده می‌شود)"""
     quality_rows = load_sheet(quality)
     defect_rows = load_sheet(defect)
@@ -824,8 +843,9 @@ def run_build(quality, defect, prod, grouping, history=None, month=None,
     out_wb.remove(out_wb.active)
 
     for cfg in SHEETS:
-        data, skipped, nogroup = build_sheet(cfg, quality_rows, defect_rows, prod_rows,
-                                             grp, hist_reported or {}, month)
+        data, skipped, nogroup, dupes = build_sheet(cfg, quality_rows, defect_rows,
+                                                    prod_rows, grp, hist_reported or {},
+                                                    month, dedup=dedup)
         title = cfg["name"] + (" " if cfg["name"] == "qv" else "")
         ws = out_wb.create_sheet(title=title)
         ws.append(headers_for(cfg))
@@ -838,8 +858,17 @@ def run_build(quality, defect, prod, grouping, history=None, month=None,
         extra = f" | تکراری‌های حذف‌شده: {skipped}" if skipped else ""
         if nogroup:
             extra += f" | بدون گروه‌بندی: {nogroup}"
+        if dupes:
+            extra += f" | ردیف تکراری کامل: {len(dupes)}"
         log(f"  شیت {title:>12}: {len(data):>4} ردیف (عیب: {ndef} | "
             f"تولید: {len(data)-ndef}){extra}")
+        if dupes:
+            off = 1 if cfg.get("extra_month_col") else 0
+            for row in dupes[:8]:
+                log(f"      - جدا شد به‌عنوان تکراری: {s(row[0])} | "
+                    f"کد={s(row[2 + off])} | عیب={s(row[9 + off])} | cnt={s(row[11 + off])}")
+            if len(dupes) > 8:
+                log(f"      - ...و {len(dupes) - 8} تکراری کامل دیگر")
 
     ws = out_wb.create_sheet(title="گروه بندی محصولات")
     if grp_rows:
@@ -915,6 +944,14 @@ def run_gui():
     month_ent.pack(side="right")
     tk.Label(mrow, text="ماه (مثلا 1405/06):", width=34, anchor="e").pack(side="left")
 
+    dedup_var = tk.BooleanVar(value=False)
+    drow = tk.Frame(app)
+    drow.pack(fill="x", padx=12, pady=3)
+    tk.Checkbutton(drow, variable=dedup_var,
+                   text="ردیف‌های کاملاً تکراری را جدا کن (همهٔ ستون‌ها یکسان؛ "
+                        "یکی نگه داشته می‌شود، بقیه در لاگ فهرست می‌شوند)"
+                   ).pack(side="right")
+
     add_file("فایل خروجی:", "out", save=True)
 
     run_btn = tk.Button(app, text="تولید رپورت", font=("", 12, "bold"),
@@ -975,6 +1012,7 @@ def run_gui():
                     history=fields["history"].get().strip() or None,
                     month=month or None,
                     out=out,
+                    dedup=bool(dedup_var.get()),
                     log=lambda m: q.put(m),
                 )
                 q.put(("__done__", out))
@@ -1023,6 +1061,9 @@ def main():
     ap.add_argument("--month", default=None, help="مثلا 1405/06 (اختیاری)")
     ap.add_argument("--out", required=True)
     ap.add_argument("--validate", default=None)
+    ap.add_argument("--dedup", action="store_true",
+                    help="رکوردهای کاملاً تکراری (همهٔ ستون‌ها یکسان) را جدا کند؛ "
+                         "یکی نگه داشته می‌شود")
     ap.add_argument("--gui", action="store_true",
                     help="حالت گرافیکی (بدون بقیهٔ پارامترها اجرا شود)")
     args = ap.parse_args()
@@ -1034,7 +1075,8 @@ def main():
               history=args.history,
               month=args.month,
               out=args.out,
-              validate_path=args.validate)
+              validate_path=args.validate,
+              dedup=args.dedup)
 
 
 if __name__ == "__main__":
