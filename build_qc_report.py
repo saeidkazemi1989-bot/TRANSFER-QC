@@ -938,20 +938,22 @@ def run_gui():
 
     app = tk.Tk()
     app.title(APP_TITLE)
-    app.geometry("760x710")
+    app.geometry("780x800")
 
-    # سربرگ: لوگو + عنوان + نام و تلفن (ثابت و غیرقابل تغییر از داخل برنامه)
+    # سربرگ: لوگو بزرگ + عنوان + نام و تلفن (ثابت و غیرقابل تغییر از داخل برنامه)
     header = tk.Frame(app)
-    header.pack(fill="x", padx=12, pady=(10, 2))
+    header.pack(fill="x", padx=12, pady=(8, 2))
     logo_path = _find_logo()
-    logo_img = _load_logo(tk, logo_path) if logo_path else None
+    logo_img = _load_logo(tk, logo_path, max_h=150) if logo_path else None
     if logo_img is not None:
         logo_lbl = tk.Label(header, image=logo_img)
         logo_lbl.image = logo_img      # نگه‌داشتن مرجع تا تصویر جمع‌آوری نشود
-        logo_lbl.pack(side="left", padx=(0, 10))
-    tk.Label(header, text=APP_TITLE, font=("", 13, "bold")).pack(side="right")
-    tk.Label(app, text=f"نام: {APP_OWNER}    |    تلفن: {APP_PHONE}",
-             fg="#444").pack(pady=(0, 4))
+        logo_lbl.pack(side="left", padx=(0, 12), pady=4)
+    title_box = tk.Frame(header)
+    title_box.pack(side="right", anchor="n", fill="x", expand=True)
+    tk.Label(title_box, text=APP_TITLE, font=("", 14, "bold")).pack(anchor="e", pady=(4, 2))
+    tk.Label(title_box, text=f"نام: {APP_OWNER}    |    تلفن: {APP_PHONE}",
+             fg="#444").pack(anchor="e", pady=(0, 4))
     tk.Label(app, text="فایل‌ها را انتخاب کنید و روی «تولید رپورت» بزنید",
              font=("", 11, "bold")).pack(pady=(0, 2))
     tk.Label(app, text="رپورت ماه قبل و ماه، اختیاری‌اند", fg="#555").pack(pady=(0, 6))
