@@ -75,12 +75,20 @@
 """
 
 import argparse
+import os
 import re
 import sys
 from collections import Counter, defaultdict
 
 import openpyxl
 from openpyxl.styles import Font
+
+# ---------------------------------------------------------------------------
+# اطلاعات نسخهٔ اختصاصی — در پنجرهٔ برنامه نمایش داده می‌شوند
+# ---------------------------------------------------------------------------
+APP_TITLE = "سازندهٔ رپورت QC راهکاران"
+APP_OWNER = "سعید کاظمی‌پور"
+APP_PHONE = "09216895359"
 
 # ---------------------------------------------------------------------------
 # پیکربندی
@@ -893,6 +901,34 @@ def run_build(quality, defect, prod, grouping, history=None, month=None,
         validate(out, validate_path, log=log)
 
 
+def _find_logo():
+    """لوگو: فایل logo.png/gif/jpg کنار اسکریپت (یا در پوشهٔ اجرا)"""
+    here = os.path.dirname(os.path.abspath(__file__))
+    for d in (here, os.getcwd()):
+        for name in ("logo.png", "logo.gif", "logo.jpg", "logo.jpeg"):
+            p = os.path.join(d, name)
+            if os.path.isfile(p):
+                return p
+    return None
+
+
+def _load_logo(tk, path, max_h=56):
+    """بارگذاری لوگو و کوچک‌کردن آن؛ اگر نشد None"""
+    try:
+        if path.lower().endswith((".png", ".gif")):
+            img = tk.PhotoImage(file=path)
+            f = max(1, img.height() // max_h)
+            if f > 1:
+                img = img.subsample(f, f)
+            return img
+        from PIL import Image, ImageTk
+        im = Image.open(path)
+        im.thumbnail((max_h * 4, max_h))
+        return ImageTk.PhotoImage(im)
+    except Exception:
+        return None
+
+
 def run_gui():
     """حالت گرافیکی: بارگذاری فایل‌ها و انتخاب مسیر خروجی"""
     import queue
@@ -901,11 +937,23 @@ def run_gui():
     from tkinter import filedialog, messagebox
 
     app = tk.Tk()
-    app.title("سازندهٔ رپورت QC راهکاران")
-    app.geometry("720x680")
+    app.title(APP_TITLE)
+    app.geometry("760x710")
 
+    # سربرگ: لوگو + عنوان + نام و تلفن (ثابت و غیرقابل تغییر از داخل برنامه)
+    header = tk.Frame(app)
+    header.pack(fill="x", padx=12, pady=(10, 2))
+    logo_path = _find_logo()
+    logo_img = _load_logo(tk, logo_path) if logo_path else None
+    if logo_img is not None:
+        logo_lbl = tk.Label(header, image=logo_img)
+        logo_lbl.image = logo_img      # نگه‌داشتن مرجع تا تصویر جمع‌آوری نشود
+        logo_lbl.pack(side="left", padx=(0, 10))
+    tk.Label(header, text=APP_TITLE, font=("", 13, "bold")).pack(side="right")
+    tk.Label(app, text=f"نام: {APP_OWNER}    |    تلفن: {APP_PHONE}",
+             fg="#444").pack(pady=(0, 4))
     tk.Label(app, text="فایل‌ها را انتخاب کنید و روی «تولید رپورت» بزنید",
-             font=("", 11, "bold")).pack(pady=(10, 2))
+             font=("", 11, "bold")).pack(pady=(0, 2))
     tk.Label(app, text="رپورت ماه قبل و ماه، اختیاری‌اند", fg="#555").pack(pady=(0, 6))
 
     fields = {}
